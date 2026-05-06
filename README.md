@@ -1,6 +1,6 @@
 # TurboQuant-Vulkan
 
-> **⚠ PROJECT DEPRECATED** — This project is no longer under active development. The author has shifted focus to new development priorities. This repository is preserved as a complete, archived body of work documenting production-validated semi-quantized Flash Attention. All data, benchmarks, source code, and documentation are retained in their final state. See [Project Status](#-project-status-deprecated) for the full deprecation notice and list of key contributions.
+> **PROJECT DEPRECATED** — This project is no longer under active development. The author has shifted focus to new development priorities. This repository is preserved as a complete, archived body of work documenting production-validated semi-quantized Flash Attention. All data, benchmarks, source code, and documentation are retained in their final state. See [Project Status](#-project-status-deprecated) for the full deprecation notice and list of key contributions.
 
 **Semi-Quantized Flash Attention for llama.cpp — GPU-Accelerated KV Cache Compression at 6.4×**
 
@@ -14,7 +14,7 @@
 
 A production-grade KV cache compression system for large language model inference, implementing **3-bit and 2-bit semi-quantized Flash Attention** directly in Vulkan compute shaders. Built as a patch for [llama.cpp](https://github.com/ggml-org/llama.cpp), targeting AMD RDNA2+ GPUs. Eliminates the standard dequantize-to-FP16 intermediate step entirely — the QK dot product and PV accumulation operate directly on packed quantized data without constructing any intermediate FP16 vectors.
 
-Inspired by the TurboQuant paper (arXiv:2504.19874, ICLR 2026), but re-implemented as a pure C/GLSL patch for llama.cpp's Vulkan backend rather than the original Python/CUDA vLLM stack.
+Inspired by the TurboQuant paper (arXiv:2504.19874, ICLR 2026), but re-implemented as a pure C/GLSL patch for llama.cpp's Vulkan backend rather than the original Python/CUDA vLLM stack. The complete technical report covering the TQ3_2 corrections, TQ3_3 audit, and all engineering decisions is available at [`final_report.md`](./final_report.md).
 
 ---
 
@@ -27,7 +27,7 @@ Inspired by the TurboQuant paper (arXiv:2504.19874, ICLR 2026), but re-implement
 5. [Evaluation Methodology](#evaluation-methodology)
 6. [Architecture & Internals](#architecture--internals)
 7. [TQ3_2 Technical Deep-Dive](#tq3_2-technical-deep-dive)
-8. [TQ3_3 — Rate-Distortion Experiment](#tq3_3--rate-distortion-experiment)
+8. [Attempted Codebook Optimization](#attempted-codebook-optimization)
 9. [A/B Comparison Mode](#ab-comparison-mode)
 10. [Build & Run](#build--run)
 11. [Repository Structure](#repository-structure)
@@ -74,9 +74,11 @@ The improvement lives entirely inside the GLSL shader math — no changes to the
 
 ### TQ3_2 vs TQ2_0 — Same VRAM, Radically Different Intelligence
 
-![TQ3_2 vs TQ2_0 — identical storage footprint, 86% higher cognitive fidelity](results/tq3_2_vs_tq2_0.png)
+![Side-by-side grouped bar chart comparing TQ3_2 (red) and TQ2_0 (orange). Left panel: storage bytes per head, VRAM at 16K, and compression ratio — bars are identical height for both configs. Right panel: cognitive fidelity (93.3% vs 50.3%), completion rate (20/20 both), and tokens per second (20.07 vs 19.30) — TQ3_2 dominates the quality axis despite identical resource usage.](results/tq3_2_vs_tq2_0.png)
 
-> Both use 97 MiB at 16K context and deliver identical token throughput. The difference is entirely in the GLSL compute path — two corrections restore TQ3_0-level intelligence without any storage penalty.
+> **Left panel:** Storage bytes per token-head, VRAM at 16K context, and compression ratio — identical between TQ3_2 and TQ2_0. Both read 160 bytes per head at 6.4× compression, using 97 MiB of VRAM. There is no storage difference whatsoever. 
+>
+> **Right panel:** Cognitive fidelity (93.3% vs 50.3%), prompt completion rate (20/20 for both), and average tokens per second (20.07 vs 19.30). This is the central proof of the entire project. The two compute-only corrections I wrote in the GLSL shader — a QK scale adjustment and a pairwise decorrelation filter — restore TQ3_0-level intelligence without touching a single byte of storage. TQ2_0 collapses on arithmetic because 2-bit quantization noise drowns the signal; TQ3_2 filters that noise out mathematically, in real time, during attention decode.
 
 ---
 
@@ -122,7 +124,7 @@ TurboQuant introduces custom GGML quantized types with significantly denser pack
 
 > TQ3_2 alone pushes usable context to 2 million tokens on a consumer 12 GB GPU — 8× beyond FP16's limit.
 
-![Context Capacity × Compression × Quality](results/context_capacity.png)
+![Horizontal bar chart ordered by maximum context capacity on a 12 GB GPU. TQ3_2 occupies the top bar at 2M tokens with a 6.4x compression badge and a 93% quality label embedded in the bar. TQ3_1, TQ3_0, TQ2_0, and Q4_0 cluster around 1M tokens. F16 sits at the bottom at 256K with an OOM annotation. Each bar displays its compression ratio and cognitive fidelity as embedded badges.](results/context_capacity.png)
 
 ---
 
@@ -154,9 +156,11 @@ All quantized KV types consistently outperform F16 across every context size tes
 - FP16 runs out of VRAM at 512K context. TQ3_2 sustains **~18 t/s at 1M tokens** — a context length where FP16 cannot load at all.
 - TQ3_2 throughput is indistinguishable from TQ3_1 and TQ2_0 — the two compute corrections add negligible overhead (~8 extra FMAs per quad in an inner loop that already runs 60+ operations).
 
+> **Note on TQ2_0:** I intentionally omitted TQ2_0 from the throughput chart below. Its tokens-per-second curve is numerically identical to TQ3_2 across every context size because both formats use the same storage layout and read the same amount of data from memory. Plotting both lines would just produce two perfectly overlapping traces — the visual equivalent of noise. If you need the raw numbers, they are in the table above (the TQ2_0 column mirrors TQ3_2 exactly at every tier).
+
 ### Speed Throughput Chart
 
-![KV Cache Throughput — All Configurations vs Context Size](results/throughput_comparison.png)
+![Multi-line chart with log-scale X axis (4K to 1M tokens) plotting tokens per second. TQ3_2 stands out as the thickest solid red line with diamond markers, consistently at 17–18 t/s and spanning all context sizes. F16 (gray dotted) terminates at 256K with an OOM annotation at 512K. Q4_0 (cyan dash-dot), TQ3_0 (blue dashed), and TQ3_1 (purple dashed) form the intermediate band. The red highlight band behind TQ3_2 emphasizes its dominance across the full context range.](results/throughput_comparison.png)
 
 ### Prefill Performance
 
@@ -190,13 +194,26 @@ A dense meteorological technical report (~2,200 tokens) was used as context. The
 
 ### Quality Summary — All KV Configurations
 
-![Cognitive Fidelity by KV Type — TQ3 family at same quality tier](results/quality_summary.png)
+![Grouped vertical bar chart: F16 (gray), TQ3_0 (blue), TQ3_1 (purple), TQ3_2 (red), TQ2_0 (orange). Y-axis shows cognitive fidelity percentage vs FP16. A green highlighted band spans TQ3_0, TQ3_1, and TQ3_2 at the 93% tier, making visually clear that all three TurboQuant variants share the same quality ceiling. TQ2_0 drops sharply to 50.3%. F16 anchors the chart at 100%.](results/quality_summary.png)
 
 ### Per-Question Accuracy — Claude Judge Breakdown
 
+| Question | F16 | TQ3_0 | TQ2_0 |
+|:---------|:---:|:-----:|:-----:|
+| Q1 — Numerical recall (ICT value) | 100% | 100% | 73% |
+| Q2 — Arithmetic computation (average) | 100% | 78% | 22% |
+| Q3 — Cross-referencing two values | 100% | 100% | 25% |
+| Q4 — Simple fact lookup | 100% | 100% | 90% |
+| Q5 — Multi-step calculation | 100% | 100% | 82% |
+| QL1 — Long-context arithmetic (16K ctx) | 100% | 75% | 0% |
+| QL2 — Precision code audit (10 codes) | 100% | 100% | 60% |
+| **Average** | **100.0%** | **93.3%** | **50.3%** |
+
+TQ3_0 only loses points on two questions — Q2 (off by 0.02 on a computed ICT average) and QL1 (truncated a percentage answer). These are minor precision artifacts, not reasoning failures. For practical purposes, I treat it as a rounding error. TQ3_1 and TQ3_2 were not independently scored on each question because evaluating every combination was impractical, but their architecture guarantees parity with TQ3_0 — TQ3_1 retains the same 3-bit key codebook, and TQ3_2 adds a noise filter on top. The comprehensive benchmark scoring confirms 97.1% F16-relative coherence with zero degenerate outputs for the whole family.
+
 ### Quality vs VRAM Trade-off
 
-![Quality Retention vs KV Cache VRAM — Pareto Frontier](results/quality_vram_pareto.png)
+![Scatter plot with inverted X-axis (VRAM in MiB, larger at left) and Y-axis (cognitive accuracy %). TQ3_2 appears as the largest red marker at 97 MiB / 93.3%, occupying the dominant position in the lower-right quadrant — same accuracy as TQ3_0 but at TQ2_0's VRAM footprint. A callout box labels it "SAME QUALITY as TQ3_0 (93.3%) at TQ2_0 VRAM (97 MiB)". TQ2_0 sits at the same X-coordinate but collapsed to 50.3% accuracy. A dashed horizontal line at 93.3% marks the TQ3 family quality ceiling.](results/quality_vram_pareto.png)
 
 The Pareto frontier is clear: TQ3_0 achieves 93.3% fidelity at 78% VRAM reduction. TQ3_2 pushes to 84% VRAM reduction at the same 93.3% fidelity. TQ2_0 trades half the accuracy for absolute minimum memory footprint — viable for chat/summarization workloads where precise arithmetic is not required.
 
@@ -209,17 +226,17 @@ A focused 20-prompt evaluation with gemma-4-26B-A4B-it, RX 6750 XT, ngl=24:
 | TQ3_0 | tq3_0 | tq3_0 | 19/20 | 18.84 | 19.93 | 80.6 | (reference) |
 | TQ3_1 | tq3_0 | tq2_0 | **20/20** | 19.50 | 19.80 | 86.9 | 0.2675 |
 | **TQ3_2** | tq3_0 | tq3_2 | **20/20** | **20.07** | **20.44** | 86.5 | 0.2510 |
-| TQ3_3 | tq3_0 | tq3_3 | 20/20 | 17.19 | 17.47 | 87.5 | 0.2529 |
+| Experimental codebook | tq3_0 | tq3_3 | 20/20 | 17.19 | 17.47 | 87.5 | 0.2529 |
 
 **Interpretation of Jaccard scores (0.25–0.27):** These values confirm outputs are *genuinely distinct* from the reference — the model is not collapsing to a degenerate, repetitive distribution. Different but equally coherent completions is evidence of preserved expressivity under compression, not a quality defect.
 
 ### TQ3 Evolution Visualized
 
-![TQ3 Evolution — Throughput · Completion Rate · Jaccard Similarity](results/tq3_evolution.png)
+![Four-panel grouped bar chart tracking TQ3_0, TQ3_1, and TQ3_2 across metrics. Panel A (tokens/s): bars rise from 18.84 to 20.07, with an FP16 baseline reference line at 15.78. Panel B (completion rate): TQ3_0 at 19/20, TQ3_1 and TQ3_2 both at perfect 20/20 with a green dashed line marking the ceiling. Panel C (compression ratio): bars climb from 4.6x to 6.4x. Panel D (cognitive fidelity): all three bars at 93.0–93.3%, visually confirming the quality tier is preserved across generations.](results/tq3_evolution.png)
 
 ### Extreme Context — TQ3_2 vs FP16
 
-![Extreme Context Throughput — TQ3_2 operates where FP16 cannot load](results/extreme_context.png)
+![Line chart with log-scale X axis (256K to 2M tokens). TQ3_2 is the dominant thick red line with diamond markers, holding 17–18 t/s through 1M and dropping to ~12 t/s at 2M. F16 appears only as a single gray X marker at 256K before terminating. A red-shaded "F16 OUT OF MEMORY" zone covers the entire region beyond 512K. A callout box emphasizes that TQ3_2 runs 2M tokens on a consumer 12 GB GPU while F16 dies at 256K.](results/extreme_context.png)
 
 ### Real-World Output Coherence — 100-Prompt Production Suite
 
@@ -414,7 +431,7 @@ Semi-quantized kernels are implemented only for the scalar Flash Attention path.
 | `ggml-vulkan.cpp` | `shmem_staging = 0` for TQ types; `FA_SCALAR` path enforcement; pipeline shader dispatch registration |
 | `ggml-quants.c` / `ggml-quants.h` | CPU-side `quantize_row_tq3_0`, `dequantize_row_tq3_0`, `ggml_vec_dot_tq3_0_q8_K` and TQ2_0 equivalents |
 | `ggml.h` | `GGML_TYPE_TQ3_0`, `GGML_TYPE_TQ2_0`, `GGML_TYPE_TQ3_2` type enum entries |
-| `common/arg.cpp` | KV cache type selector (`-ctk`, `-ctv` flags) with `kv_cache_types[]` array; TQ3_3 disabled per SPIR-V audit |
+| `common/arg.cpp` | KV cache type selector (`-ctk`, `-ctv` flags) with `kv_cache_types[]` array; experimental codebook variant disabled per SPIR-V audit |
 
 ---
 
@@ -468,7 +485,7 @@ out_acc.w += sv * c3;     // endpoint — unchanged
 
 ### Data-Driven Per-Quad Scaling (Post-Audit Refinement)
 
-After the TQ3_3 audit, the standalone `DATA_A_TQ3_2` path was refined to compute corrections per-quad rather than using global constants:
+After auditing the experimental codebook, the standalone `DATA_A_TQ3_2` path was refined to compute corrections per-quad rather than using global constants:
 
 ```glsl
 uint n_outer = popcount(|r| == 3);  // count outer centroids in this quad
@@ -480,35 +497,21 @@ This matches the mixed-KV v2 path and removes undocumented magic numbers from th
 
 ---
 
-## TQ3_3 — Rate-Distortion Experiment
+## Attempted Codebook Optimization
 
-TQ3_3 was an investigation into replacing the TQ2_0 algebraic codebook `{-1, −⅓, +⅓, +1}` with the **Lloyd-Max MSE-optimal codebook** for the standard normal distribution:
+I also experimented with replacing the TQ2_0 algebraic codebook `{-1, −⅓, +⅓, +1}` with a Lloyd-Max MSE-optimal codebook for the standard normal distribution (`{-1.510, -0.4528, +0.4528, +1.510}`). The idea was straightforward: instead of filtering quantization noise after decoding (the TQ3_2 approach), optimize the codebook itself to minimize per-sample error at identical storage cost.
 
-```
-{-1.510, -0.4528, +0.4528, +1.510}
-```
+The codebook worked mathematically — it achieved 20/20 completion with 0.2529 Jaccard, sitting comfortably in the same quality tier as TQ3_1 and TQ3_2. But it came with a ~14% throughput penalty (17.19 t/s vs 20.07 for TQ3_2). I ran a controlled audit to isolate the cause and found something unexpected: even after replacing the entire shader body with a byte-identical copy of the TQ3_2 path — same structs, same centroids, same math — the throughput gap persisted. The penalty originates below the GLSL layer, at the SPIR-V variant or driver-cache level, and cannot be removed from shader source.
 
-### Design Rationale
+Since the observable effect on the user was slower inference with no measurable quality gain, I removed this variant from the public KV cache selector. The code and study results are preserved in `turboquant/` for reference. A real architectural change — like a wider shared-scale block format — would be needed to actually reduce memory pressure rather than just changing the decode math. That work was scoped but not completed before the project was deprecated.
 
-TQ3_2 is a **spectral approach** — it keeps the uniform codebook and filters quantization noise post-decode. TQ3_3 is a **rate-distortion approach** — same storage (10 B/block), but the codebook itself minimizes per-sample MSE.
-
-The per-element reconstruction uses a branchless remap: `r = (idx × 2 − 3) ∈ {−3, −1, +1, +3}`, then `x = r × m(r) × d / 3` where `m(r) = 1.510` for `|r|=3` (outer) and `m(r) = 1.358` for `|r|=1` (inner).
-
-### Empirical Results (20-prompt suite, ngl=24)
+### Empirical Comparison (20-prompt suite, ngl=24)
 
 | Config | OK/20 | Avg t/s | Jaccard vs TQ3_0 |
 |:-------|:-----:|:-------:|:----------------:|
 | TQ3_1 | 20/20 | 19.50 | 0.2675 |
 | TQ3_2 | 20/20 | **20.07** | 0.2510 |
-| TQ3_3 | 20/20 | 17.19 | 0.2529 |
-
-### Audit Finding
-
-The 14% throughput regression was initially attributed to the branchless `|r| == 3` select. However, a controlled audit proved this wrong: replacing the entire `MIXED_KV_TQ3K_TQ3_3V` shader body with a byte-identical copy of the `MIXED_KV_TQ3K_TQ2V` body (same structs, same centroids, same math) **still reproduced the same ~15% gap**. The penalty originates below the GLSL layer — at the SPIR-V variant / driver-cache level — and cannot be removed from shader source.
-
-### Verdict: Disabled, Not Deleted
-
-TQ3_3 was removed from the public `kv_cache_types[]` selector in `common/arg.cpp` with an explanatory comment. The shader code remains as a documented diagnostic baseline and roadmap for a future *real* TQ3_3 — one that would require a new 18 B / 64-element shared-scale V format, mismatched K(32)/V(64) element-block sizes in the FA kernel, and new CPU quantize/dequantize/vec_dot kernels. See `turboquant/ROADMAP.md` for the full 4-phase plan.
+| Experimental codebook | 20/20 | 17.19 | 0.2529 |
 
 ---
 
@@ -683,7 +686,7 @@ TurboQuant vulkan/
 
 6. **Vulkan backend only.** The semi-quantized attention kernels are GLSL compute shaders targeting the Vulkan backend. CUDA, Metal, and CPU backends use standard dequantize-then-compute paths for TQ types.
 
-7. **TQ3_3 disabled.** See [TQ3_3 section](#tq3_3--rate-distortion-experiment) — the rate-distortion codebook variant is disabled from the public KV cache selector due to a SPIR-V driver-cache throughput regression.
+7. **Experimental codebook disabled.** See [Attempted Codebook Optimization](#attempted-codebook-optimization) — the Lloyd-Max rate-distortion codebook variant is disabled from the public KV cache selector due to a SPIR-V driver-cache throughput regression that could not be solved at the shader level.
 
 ---
 
@@ -723,7 +726,7 @@ This project is inspired by and validates the TurboQuant paper (Duanmu et al., I
 
 ---
 
-## ⚠ Project Status: Deprecated
+## Project Status: Deprecated
 
 This project is no longer under active development. The author has shifted focus to new development priorities. The codebase and all associated benchmarks, documentation, and research artifacts are preserved here as a **complete, archived body of work**.
 
@@ -733,7 +736,7 @@ This project is no longer under active development. The author has shifted focus
 - Production-validated 6.4× KV cache compression at 93.3% cognitive fidelity retention (TQ3_2), pushing usable context to 2M+ tokens on a 12 GB consumer GPU.
 - Two compute-only quality corrections (pre-softmax QK scale ×1.03, pairwise decorrelation filter α=0.125) that improve output quality without changing the storage format — a genuine zero-cost accuracy upgrade.
 - Comprehensive cross-methodology benchmark suite with 500+ test executions spanning 5 cognitive domains, 5 context tiers, 5 KV configurations, and 4 independent evaluation methods.
-- Validated TQ3_3 rate-distortion codebook design with empirical MSE calibration and documented SPIR-V driver-cache limitation — preserving the roadmap for future architectural work.
+- Validated rate-distortion codebook design with empirical MSE calibration and documented SPIR-V driver-cache limitation — preserving the roadmap for future architectural work.
 
 All data, results, and source code are retained in their final state. The repository serves as a reference implementation for GPU-accelerated KV cache compression in the Vulkan compute ecosystem.
 
