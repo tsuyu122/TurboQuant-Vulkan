@@ -1,5 +1,7 @@
 # TurboQuant-Vulkan
 
+> **⚠ PROJECT DEPRECATED** — This project is no longer under active development. The author has shifted focus to new development priorities. This repository is preserved as a complete, archived body of work documenting production-validated semi-quantized Flash Attention. All data, benchmarks, source code, and documentation are retained in their final state. See [Project Status](#-project-status-deprecated) for the full deprecation notice and list of key contributions.
+
 **Semi-Quantized Flash Attention for llama.cpp — GPU-Accelerated KV Cache Compression at 6.4×**
 
 [![Vulkan](https://img.shields.io/badge/GPU-Vulkan-red)](https://www.vulkan.org/)
@@ -739,7 +741,19 @@ All data, results, and source code are retained in their final state. The reposi
 
 ## License & Citation
 
-The modified llama.cpp source files inherit the [MIT License](https://github.com/ggml-org/llama.cpp). The standalone TQ3_0 distribution (`tq3_0_repo/`) is licensed under **AGPL-3.0**.
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)**.
+
+- **Commercial use is permitted** — you may use, modify, and distribute this software commercially.
+- **Modifications must be open-sourced** — if you modify this software and distribute it or provide it as a network service, you must release your modifications under the same license.
+- **Network use triggers copyleft** — if you run a modified version as a network service (e.g., SaaS, API endpoint), you must provide the source code to users.
+
+The modified llama.cpp source files (`llama_src/`) additionally carry the upstream [MIT License](https://github.com/ggml-org/llama.cpp) for portions derived from llama.cpp. The overall project and all original TurboQuant code is AGPL-3.0.
+
+### Commercial Licensing
+
+Organizations that wish to use this software **without open-sourcing their modifications** must obtain a commercial license. This applies to proprietary software incorporating TurboQuant-Vulkan, closed-source SaaS deployments, and any use where AGPL compliance is not desired.
+
+Contact: [vhmarchiore@gmail.com](mailto:vhmarchiore@gmail.com)
 
 ### Citation
 
