@@ -1,0 +1,70 @@
+﻿// Copyright (c) 2026 tsuyu122
+// Licensed under the GNU Affero General Public License v3 (AGPL-3.0)
+// See LICENSE file for details.
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {block_tq3_0 data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+// TQ3_0 codebook centroids (Gaussian Lloyd-Max, 3-bit, 8 levels)
+const float tq3_centroids[8] = float[8](
+    -2.1519454, -1.3439092, -0.7560052, -0.2450942,
+     0.2450942,  0.7560052,  1.3439092,  2.1519454
+);
+
+void main() {
+    // Each workgroup handles 4 blocks (4 * 32 = 128 values)
+    // 256 threads / 32 values per block = 8 threads per block... but let's use 4 blocks
+    const uint i = gl_WorkGroupID.x * 4 + gl_LocalInvocationID.x / 64;
+    const uint tid = gl_LocalInvocationID.x % 64;
+
+    // Which of the 32 values in the block this thread handles (2 values per thread)
+    const uint val_pair = tid; // 0..63: but block has only 32 values, so 2 values from 2 halves
+
+    // Use a simpler mapping: each thread handles 2 consecutive values
+    const uint val_idx = tid / 2; // 0..31
+    const uint val_half = tid % 2; // 0 or 1
+
+    const uint ib = 32 * (gl_WorkGroupID.x * 4) + gl_LocalInvocationID.x / 8;
+    if (ib >= p.nel / 32) {
+        return;
+    }
+
+    const uint local_val = gl_LocalInvocationID.x % 8; // which value within the block group of 8
+
+    // Decode: 8 values packed into 3 bytes
+    const uint group_in_block = (gl_LocalInvocationID.x % 32) / 8; // group 0..3 within this block
+    const uint within_group = gl_LocalInvocationID.x % 8;          // value 0..7 within group
+
+    const uint block_idx = gl_WorkGroupID.x * 4 + (gl_LocalInvocationID.x / 32);
+    if (block_idx >= p.nel / 32) {
+        return;
+    }
+
+    const float d = float(data_a[block_idx].d);
+
+    const uint byte_base = group_in_block * 3;
+    const uint b0 = uint(data_a[block_idx].qs[byte_base + 0]);
+    const uint b1 = uint(data_a[block_idx].qs[byte_base + 1]);
+    const uint b2 = uint(data_a[block_idx].qs[byte_base + 2]);
+
+    // Unpack the 3-bit index for this value
+    uint idx;
+    switch (within_group) {
+        case 0: idx =  b0       & 7u; break;
+        case 1: idx = (b0 >> 3) & 7u; break;
+        case 2: idx = ((b0 >> 6) | (b1 << 2)) & 7u; break;
+        case 3: idx = (b1 >> 1) & 7u; break;
+        case 4: idx = (b1 >> 4) & 7u; break;
+        case 5: idx = ((b1 >> 7) | (b2 << 1)) & 7u; break;
+        case 6: idx = (b2 >> 2) & 7u; break;
+        case 7: idx = (b2 >> 5) & 7u; break;
+    }
+
+    const uint out_idx = block_idx * 32 + group_in_block * 8 + within_group;
+    data_b[out_idx] = D_TYPE(d * tq3_centroids[idx]);
+}

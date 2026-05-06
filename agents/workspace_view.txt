@@ -1,0 +1,200 @@
+# Workspace Structure
+
+├── .github/
+│   ├── instructions/
+│   │   └── plan-executor.instructions.md (748b)
+│   └── prompts/
+│       └── plan.prompt.md (1KB)
+├── agents/
+│   ├── brain.md (2KB)
+│   ├── daemon.py (19KB)
+│   ├── local_orchestrator.py (14KB)
+│   ├── memory.md (494b)
+│   ├── orchestrator.py (16KB)
+│   ├── plan.md (1KB)
+│   ├── planner.py (6KB)
+│   ├── README.md (3KB)
+│   ├── run_agents.bat (523b)
+│   ├── task.md (308b)
+│   └── test_output.txt (29b)
+├── bench/
+│   ├── prompts/
+│   │   └── prompts.json (53KB)
+│   ├── quality/
+│   │   ├── dataset_for_eval.json (661KB)
+│   │   └── scored_outputs.json (53KB)
+│   ├── reports/
+│   │   ├── charts/
+│   │   │   ├── dashboard.png (400KB)
+│   │   │   ├── f16_coherence.png (189KB)
+│   │   │   ├── gen_speed_heatmap.png (89KB)
+│   │   │   ├── gen_tokens_per_sec.png (96KB)
+│   │   │   ├── max_context.png (61KB)
+│   │   │   ├── prompt_tokens_per_sec.png (225KB)
+│   │   │   ├── quality_by_category.png (96KB)
+│   │   │   ├── quality_by_context.png (70KB)
+│   │   │   ├── quality_score.png (85KB)
+│   │   │   ├── radar_comparison.png (322KB)
+│   │   │   ├── stability.png (84KB)
+│   │   │   └── ttft.png (211KB)
+│   │   └── final_report.md (5KB)
+│   ├── results/
+│   │   ├── comprehensive_summary.csv (505b)
+│   │   ├── quality_index.csv (2KB)
+│   │   ├── stability.csv (7KB)
+│   │   └── throughput.csv (11KB)
+│   ├── runs/
+│   │   ├── f16_ctx131072_run01/
+│   │   │   ├── config.json (358b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx131072_run02/
+│   │   │   ├── config.json (358b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx131072_run03/
+│   │   │   ├── config.json (367b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx16384_run01/
+│   │   │   ├── config.json (356b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx16384_run02/
+│   │   │   ├── config.json (365b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx16384_run03/
+│   │   │   ├── config.json (346b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx262144_run01/
+│   │   │   ├── config.json (361b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx262144_run02/
+│   │   │   ├── config.json (362b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx262144_run03/
+│   │   │   ├── config.json (348b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx32768_run01/
+│   │   │   ├── config.json (365b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx32768_run02/
+│   │   │   ├── config.json (356b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx32768_run03/
+│   │   │   ├── config.json (356b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx4096_run01/
+│   │   │   ├── config.json (344b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx4096_run02/
+│   │   │   ├── config.json (344b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx4096_run03/
+│   │   │   ├── config.json (344b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx524288_run01/
+│   │   │   ├── config.json (348b)
+│   │   │   ├── metrics.json (222b)
+│   │   │   ├── status.json (215b)
+│   │   ├── f16_ctx524288_run02/
+│   │   │   ├── config.json (362b)
+│   │   │   ├── metrics.json (227b)
+│   │   │   ├── status.json (215b)
+│   │   ├── f16_ctx524288_run03/
+│   │   │   ├── config.json (358b)
+│   │   │   ├── metrics.json (227b)
+│   │   │   ├── status.json (215b)
+│   │   ├── f16_ctx65536_run01/
+│   │   │   ├── config.json (356b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx65536_run02/
+│   │   │   ├── config.json (359b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx65536_run03/
+│   │   │   ├── config.json (346b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx8192_run01/
+│   │   │   ├── config.json (357b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx8192_run02/
+│   │   │   ├── config.json (358b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── f16_ctx8192_run03/
+│   │   │   ├── config.json (361b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx1048576_run01/
+│   │   │   ├── config.json (368b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx1048576_run02/
+│   │   │   ├── config.json (374b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx1048576_run03/
+│   │   │   ├── config.json (364b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx131072_run01/
+│   │   │   ├── config.json (372b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx131072_run02/
+│   │   │   ├── config.json (362b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx131072_run03/
+│   │   │   ├── config.json (362b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx16384_run01/
+│   │   │   ├── config.json (367b)
+│   │   │   ├── metrics.json (30KB)
+│   │   │   ├── output.txt (0b)
+│   │   │   ├── status.json (132b)
+│   │   ├── q4_0_ctx16384_run02/
+│   │   │   ├── config.json (360b)

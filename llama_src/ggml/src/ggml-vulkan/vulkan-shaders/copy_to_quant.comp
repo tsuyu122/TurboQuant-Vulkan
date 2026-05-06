@@ -1,0 +1,492 @@
+#version 450
+
+#include "rte.glsl"
+#include "types.glsl"
+
+#if defined(SET_ROWS) && QUANT_K == 1
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+const uint BLOCK_SIZE = 512;
+#else
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+const uint BLOCK_SIZE = 32;
+#endif
+
+layout (binding = 0) readonly buffer S {float data_s[];};
+
+#if defined(SET_ROWS)
+#include "generic_binary_head.glsl"
+layout (binding = 1) readonly buffer C {B_TYPE data_i[];};
+layout (binding = 2) writeonly buffer Q {A_TYPE data_q[];};
+
+#if B_SIZE == 64
+#define DATA_I_SWIZZLE .x
+#else
+#define DATA_I_SWIZZLE
+#endif
+
+#else
+#include "generic_unary_head.glsl"
+layout (binding = 1) writeonly buffer Q {A_TYPE data_q[];};
+#endif
+
+#if defined(DATA_A_Q4_0)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+    float vmax = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q4_0; ++j) {
+        const float v = data_s[src_idx + j];
+        if (amax < abs(v)) {
+            amax = abs(v);
+            vmax = v;
+        }
+    }
+
+    const float d  = vmax / -8;
+    const float id = (d != 0.0) ? 1.0/d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q4_0/2; ++j) {
+        const float x0 = data_s[src_idx + 0              + j]*id;
+        const float x1 = data_s[src_idx + QUANT_K_Q4_0/2 + j]*id;
+
+        const uint xi0 = min(15, int(x0 + 8.5));
+        const uint xi1 = min(15, int(x1 + 8.5));
+
+        data_q[dst_idx].qs[j]  = uint8_t(xi0 | (xi1 << 4));
+    }
+}
+#endif
+
+#if defined(DATA_A_Q4_1)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float vmin = 1.0/0.0;
+    float vmax = -vmin;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q4_1; ++j) {
+        const float v = data_s[src_idx + j];
+
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+    }
+
+    const float d  = (vmax - vmin) / ((1 << 4) - 1);
+    const float id = (d != 0.0) ? 1.0/d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+    data_q[dst_idx].m = float16_t(vmin);
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q4_1/2; ++j) {
+        const float x0 = (data_s[src_idx + 0              + j] - vmin)*id;
+        const float x1 = (data_s[src_idx + QUANT_K_Q4_1/2 + j] - vmin)*id;
+
+        const uint xi0 = min(15, int(x0 + 0.5));
+        const uint xi1 = min(15, int(x1 + 0.5));
+
+        data_q[dst_idx].qs[j]  = uint8_t(xi0 | (xi1 << 4));
+    }
+}
+#endif
+
+#if defined(DATA_A_Q5_0)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+    float vmax = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q5_0; ++j) {
+        const float v = data_s[src_idx + j];
+        if (amax < abs(v)) {
+            amax = abs(v);
+            vmax = v;
+        }
+    }
+
+    const float d  = vmax / -16;
+    const float id = (d != 0.0) ? 1.0/d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    uint32_t qh = 0;
+    [[unroll]] for (int j = 0; j < QUANT_K_Q5_0/2; ++j) {
+        const float x0 = data_s[src_idx + 0              + j]*id;
+        const float x1 = data_s[src_idx + QUANT_K_Q5_0/2 + j]*id;
+
+        const uint xi0 = min(31, int(x0 + 16.5));
+        const uint xi1 = min(31, int(x1 + 16.5));
+
+        data_q[dst_idx].qs[j]  = uint8_t((xi0 & 0xf) | ((xi1 & 0xf) << 4));
+        qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
+        qh |= ((xi1 & 0x10u) >> 4) << (j + QUANT_K_Q5_0/2);
+    }
+    data_q[dst_idx].qh[0] = uint16_t(qh & 0xFFFF);
+    data_q[dst_idx].qh[1] = uint16_t(qh >> 16);
+}
+#endif
+
+#if defined(DATA_A_Q5_1)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float min = data_s[src_idx + 0];
+    float max = min;
+
+    [[unroll]] for (int j = 1; j < QUANT_K_Q5_1; ++j) {
+        const float v = data_s[src_idx + j];
+        min = v < min ? v : min;
+        max = v > max ? v : max;
+    }
+
+    const float d  = (max - min) / 31;
+    const float id = (d != 0) ? 1.0/d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+    data_q[dst_idx].m = float16_t(min);
+
+    uint32_t qh = 0;
+    [[unroll]] for (int j = 0; j < QUANT_K_Q5_1/2; ++j) {
+        const float x0 = (data_s[src_idx + 0              + j] - min)*id;
+        const float x1 = (data_s[src_idx + QUANT_K_Q5_1/2 + j] - min)*id;
+
+        const uint xi0 = uint(x0 + 0.5);
+        const uint xi1 = uint(x1 + 0.5);
+
+        data_q[dst_idx].qs[j]  = uint8_t((xi0 & 0xf) | ((xi1 & 0xf) << 4));
+        qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
+        qh |= ((xi1 & 0x10u) >> 4) << (j + QUANT_K_Q5_1/2);
+    }
+    data_q[dst_idx].qh = qh;
+}
+#endif
+
+#if defined(DATA_A_Q8_0)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0; // absolute max
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q8_0; j++) {
+        const float v = data_s[src_idx + j];
+        amax = max(amax, abs(v));
+    }
+
+    const float d = amax / ((1 << 7) - 1);
+    const float id = (d != 0.0) ? 1.0/d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q8_0; ++j) {
+        const float x0 = data_s[src_idx + j]*id;
+
+        data_q[dst_idx].qs[j] = int8_t(round(x0));
+    }
+}
+#endif
+
+#if defined(DATA_A_Q1_0)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float sum_abs = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q1_0; j++) {
+        sum_abs += abs(data_s[src_idx + j]);
+    }
+
+    const float d = sum_abs / QUANT_K_Q1_0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q1_0 / 8; ++j) {
+        data_q[dst_idx].qs[j] = uint8_t(0);
+    }
+
+    [[unroll]] for (int j = 0; j < QUANT_K_Q1_0; ++j) {
+        if (data_s[src_idx + j] >= 0.0) {
+            data_q[dst_idx].qs[j / 8] |= uint8_t(1 << (j % 8));
+        }
+    }
+}
+#endif
+
+#if defined(DATA_A_TQ3_0)
+// TQ3_0 codebook boundaries for quantization (midpoints between centroids)
+const float tq3_boundaries_q[7] = float[7](
+    -1.7479273, -1.0499572, -0.5005497, 0.0,
+     0.5005497,  1.0499572,  1.7479273
+);
+
+// Max centroid value for scale computation
+const float TQ3_CENTROID_MAX_Q = 2.1519454;
+
+// Binary search to find 3-bit index
+uint tq3_quantize_val(float x) {
+    if (x < tq3_boundaries_q[3]) {
+        if (x < tq3_boundaries_q[1]) {
+            return (x < tq3_boundaries_q[0]) ? 0u : 1u;
+        } else {
+            return (x < tq3_boundaries_q[2]) ? 2u : 3u;
+        }
+    } else {
+        if (x < tq3_boundaries_q[5]) {
+            return (x < tq3_boundaries_q[4]) ? 4u : 5u;
+        } else {
+            return (x < tq3_boundaries_q[6]) ? 6u : 7u;
+        }
+    }
+}
+
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_TQ3_0; j++) {
+        const float v = abs(data_s[src_idx + j]);
+        amax = max(amax, v);
+    }
+
+    const float d  = amax / TQ3_CENTROID_MAX_Q;
+    const float id = (d != 0.0) ? 1.0 / d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    // Process groups of 8 values -> 3 bytes
+    [[unroll]] for (int g = 0; g < QUANT_K_TQ3_0 / 8; g++) {
+        uint i0 = tq3_quantize_val(data_s[src_idx + g*8 + 0] * id);
+        uint i1 = tq3_quantize_val(data_s[src_idx + g*8 + 1] * id);
+        uint i2 = tq3_quantize_val(data_s[src_idx + g*8 + 2] * id);
+        uint i3 = tq3_quantize_val(data_s[src_idx + g*8 + 3] * id);
+        uint i4 = tq3_quantize_val(data_s[src_idx + g*8 + 4] * id);
+        uint i5 = tq3_quantize_val(data_s[src_idx + g*8 + 5] * id);
+        uint i6 = tq3_quantize_val(data_s[src_idx + g*8 + 6] * id);
+        uint i7 = tq3_quantize_val(data_s[src_idx + g*8 + 7] * id);
+
+        data_q[dst_idx].qs[g*3 + 0] = uint8_t( i0       | (i1 << 3) | (i2 << 6));
+        data_q[dst_idx].qs[g*3 + 1] = uint8_t((i2 >> 2) | (i3 << 1) | (i4 << 4) | (i5 << 7));
+        data_q[dst_idx].qs[g*3 + 2] = uint8_t((i5 >> 1) | (i6 << 2) | (i7 << 5));
+    }
+}
+#endif
+
+#if defined(DATA_A_TQ3_2)
+// TQ3_2 quantization — MSE-optimized scale via 8-candidate grid search.
+// Storage/codebook identical to TQ2_0 (10 B/block, 4-level {-d, -d/3, +d/3, +d}),
+// so VRAM and the decode path are byte-exact; only the chosen per-block scale `d`
+// differs from plain `amax`. For Gaussian/Laplace-like V activations this cuts
+// per-block reconstruction MSE by 45-65% vs d=amax (see turboquant study).
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+    [[unroll]] for (int j = 0; j < QUANT_K_TQ3_2; j++) {
+        const float v = abs(data_s[src_idx + j]);
+        amax = max(amax, v);
+    }
+
+    // Candidate scale factors (multiplied against amax). Empirically covers the
+    // Lloyd-Max optimum for Gaussian (~0.68*amax), Laplace (~0.60*amax) and
+    // clipped-outlier regimes. The 1.00 entry guarantees we never regress from
+    // the previous d=amax behaviour.
+    const float kFactors[8] = float[8](1.00, 0.90, 0.82, 0.75, 0.68, 0.62, 0.56, 0.50);
+
+    float best_d   = amax;
+    float best_err = 1e30;
+
+    for (int s = 0; s < 8; ++s) {
+        const float d_try = amax * kFactors[s];
+        const float id    = (d_try > 0.0) ? 1.5 / d_try : 0.0;
+        const float step  = d_try / 3.0;
+        float err = 0.0;
+        for (int j = 0; j < QUANT_K_TQ3_2; ++j) {
+            const float x   = data_s[src_idx + j];
+            const int   q   = clamp(int(round(x * id + 1.5)), 0, 3);
+            const float dec = float(q * 2 - 3) * step;
+            const float e   = x - dec;
+            err += e * e;
+        }
+        if (err < best_err) {
+            best_err = err;
+            best_d   = d_try;
+        }
+    }
+
+    const float d  = best_d;
+    const float id = (d > 0.0) ? 1.5 / d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    [[unroll]] for (int b = 0; b < QUANT_K_TQ3_2 / 4; b++) {
+        uint byte_val = 0u;
+        [[unroll]] for (int k = 0; k < 4; k++) {
+            const float x = data_s[src_idx + b*4 + k];
+            const int q = clamp(int(round(x * id + 1.5)), 0, 3);
+            byte_val |= (uint(q) & 3u) << (k * 2);
+        }
+        data_q[dst_idx].qs[b] = uint8_t(byte_val);
+    }
+}
+#endif
+
+#if defined(DATA_A_TQ3_3)
+// TQ3_3 quantization: identical bitstream to TQ3_2; decode-side differences only.
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+    [[unroll]] for (int j = 0; j < QUANT_K_TQ3_2; j++) {
+        const float v = abs(data_s[src_idx + j]);
+        amax = max(amax, v);
+    }
+    const float d  = amax;
+    const float id = (d != 0.0) ? 1.5 / d : 0.0;
+    data_q[dst_idx].d = float16_t(d);
+    [[unroll]] for (int b = 0; b < QUANT_K_TQ3_2 / 4; b++) {
+        uint byte_val = 0u;
+        [[unroll]] for (int k = 0; k < 4; k++) {
+            const float x = data_s[src_idx + b*4 + k];
+            const int q = clamp(int(round(x * id + 1.5)), 0, 3);
+            byte_val |= (uint(q) & 3u) << (k * 2);
+        }
+        data_q[dst_idx].qs[b] = uint8_t(byte_val);
+    }
+}
+#endif
+
+#if defined(DATA_A_TQ2_0)
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_TQ2_0; j++) {
+        const float v = abs(data_s[src_idx + j]);
+        amax = max(amax, v);
+    }
+
+    // 4-level non-zero codebook: {-1, -1/3, +1/3, +1} * d (no zero level)
+    // id = 1.5/d maps [-d,d] → [-1.5, 1.5]; add 1.5 to get [0,3]
+    const float d  = amax;
+    const float id = (d != 0.0) ? 1.5 / d : 0.0;
+
+    data_q[dst_idx].d = float16_t(d);
+
+    // Pack 4 values per byte: quantize each to index in {0,1,2,3}
+    [[unroll]] for (int b = 0; b < QUANT_K_TQ2_0 / 4; b++) {
+        uint byte_val = 0u;
+        [[unroll]] for (int k = 0; k < 4; k++) {
+            const float x = data_s[src_idx + b*4 + k];
+            const int q = clamp(int(round(x * id + 1.5)), 0, 3);
+            byte_val |= (uint(q) & 3u) << (k * 2);
+        }
+        data_q[dst_idx].qs[b] = uint8_t(byte_val);
+    }
+}
+#endif
+
+#if defined(DATA_A_IQ4_NL)
+uint best_index(float x) {
+    if (x <= kvalues_iq4nl[0]) return 0;
+    if (x >= kvalues_iq4nl[15]) return 15;
+    int ml = 0, mu = 15;
+    while (mu-ml > 1) {
+        int mav = (ml+mu)/2;
+        if (x < kvalues_iq4nl[mav]) mu = mav; else ml = mav;
+    }
+    return x - kvalues_iq4nl[mu-1] < kvalues_iq4nl[mu] - x ? mu-1 : mu;
+}
+
+void quantize(uint dst_idx, uint src_idx)
+{
+    float amax = 0.0;
+    float vmax = 0.0;
+
+    [[unroll]] for (int j = 0; j < QUANT_K_IQ4_NL; ++j) {
+        const float v = data_s[src_idx + j];
+        if (amax < abs(v)) {
+            amax = abs(v);
+            vmax = v;
+        }
+    }
+
+    float d = vmax / kvalues_iq4nl[0];
+    const float id = (d != 0.0) ? 1.0/d : 0.0;
+
+    float sumqx = 0, sumq2 = 0;
+    [[unroll]] for (int j = 0; j < QUANT_K_IQ4_NL/2; ++j) {
+        const float x0 = data_s[src_idx + 0                + j]*id;
+        const float x1 = data_s[src_idx + QUANT_K_IQ4_NL/2 + j]*id;
+        const uint xi0 = best_index(x0);
+        const uint xi1 = best_index(x1);
+        data_q[dst_idx].qs[j] = uint8_t(xi0 | (xi1 << 4));
+        const float v0 = kvalues_iq4nl[xi0];
+        const float v1 = kvalues_iq4nl[xi1];
+        const float w0 = data_s[src_idx + 0                + j]*data_s[src_idx + 0                + j];
+        const float w1 = data_s[src_idx + QUANT_K_IQ4_NL/2 + j]*data_s[src_idx + QUANT_K_IQ4_NL/2 + j];
+        sumqx += w0*v0*data_s[src_idx + j] + w1*v1*data_s[src_idx + QUANT_K_IQ4_NL/2 + j];
+        sumq2 += w0*v0*v0 + w1*v1*v1;
+    }
+
+    data_q[dst_idx].d = float16_t(sumq2 > 0 ? sumqx/sumq2 : d);
+
+}
+#endif
+
+#if defined(DATA_A_F32) || defined(DATA_A_F16)
+void quantize(uint dst_idx, uint src_idx)
+{
+    data_q[dst_idx] = A_TYPE(data_s[src_idx]);
+}
+#endif
+
+#if defined(DATA_A_BF16)
+void quantize(uint dst_idx, uint src_idx)
+{
+    data_q[dst_idx] = A_TYPE(fp32_to_bf16(data_s[src_idx]));
+}
+#endif
+
+#if defined(SET_ROWS)
+
+void main() {
+#ifdef NEEDS_INIT_IQ_SHMEM
+    init_iq_shmem(gl_WorkGroupSize);
+#endif
+
+    const uint idx = ((gl_WorkGroupID.z * 262144 + gl_WorkGroupID.y * 512 + gl_WorkGroupID.x) * BLOCK_SIZE + gl_LocalInvocationID.x) * QUANT_K;
+
+    if (idx >= p.ne) {
+        return;
+    }
+
+    uint i00, i01, i02, i03;
+    get_indices(idx, i00, i01, i02, i03);
+
+    uint i12 = fastmod(i03, p.ne12);
+    uint i11 = fastmod(i02, p.ne11);
+    uint i10 = i01;
+
+    uint i1 = data_i[src1_idx(i10, i11, i12, 0) + get_boffset()] DATA_I_SWIZZLE;
+
+    uint src0_idx = src0_idx(i00, i01, i02, i03) + get_aoffset();
+    uint dst_idx = dst_idx(i00 / QUANT_K, i1, i02, i03) + get_doffset();
+
+    quantize(dst_idx, src0_idx);
+}
+
+#else
+
+void main() {
+#ifdef NEEDS_INIT_IQ_SHMEM
+    init_iq_shmem(gl_WorkGroupSize);
+#endif
+
+    const uint idx = (gl_WorkGroupID.z * 262144 + gl_WorkGroupID.y * 512 + gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x) * QUANT_K;
+
+    if (idx >= p.ne) {
+        return;
+    }
+
+    uint dst_idx = dst_idx_quant(idx, QUANT_K);
+    uint src_idx = get_aoffset() + src0_idx(idx);
+
+    quantize(dst_idx, src_idx);
+}
+
+#endif
