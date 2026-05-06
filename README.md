@@ -70,6 +70,12 @@ TQ3_2 is the culmination of this project — a **storage-identical upgrade over 
 
 The improvement lives entirely inside the GLSL shader math — no changes to the GGML type table, no new CPU quantizers, no format migration. See [TQ3_2 Technical Deep-Dive](#tq3_2-technical-deep-dive) for the mathematical derivation of both corrections.
 
+### TQ3_2 vs TQ2_0 — Same VRAM, Radically Different Intelligence
+
+![TQ3_2 vs TQ2_0 — identical storage footprint, 86% higher cognitive fidelity](results/tq3_2_vs_tq2_0.png)
+
+> Both use 97 MiB at 16K context and deliver identical token throughput. The difference is entirely in the GLSL compute path — two corrections restore TQ3_0-level intelligence without any storage penalty.
+
 ---
 
 ## KV Cache Compression
@@ -180,9 +186,11 @@ A dense meteorological technical report (~2,200 tokens) was used as context. The
 
 *\*TQ3_1 estimate based on K=TQ3_0 architecture. Comprehensive benchmark scoring shows 97.1% F16-relative coherence with 0% degenerate outputs.*
 
-### Per-Question Score Breakdown
+### Quality Summary — All KV Configurations
 
-![Claude Sonnet 4.6 Per-Question Accuracy — F16 vs TQ3_0 vs TQ2_0](results/claude_judge_breakdown.png)
+![Cognitive Fidelity by KV Type — TQ3 family at same quality tier](results/quality_summary.png)
+
+### Per-Question Accuracy — Claude Judge Breakdown
 
 ### Quality vs VRAM Trade-off
 
