@@ -114,6 +114,8 @@ TurboQuant introduces custom GGML quantized types with significantly denser pack
 
 > TQ3_2 alone pushes usable context to 2 million tokens on a consumer 12 GB GPU — 8× beyond FP16's limit.
 
+![Context Capacity × Compression × Quality](results/context_capacity.png)
+
 ---
 
 ## Benchmark Results
@@ -146,9 +148,7 @@ All quantized KV types consistently outperform F16 across every context size tes
 
 ### Speed Throughput Chart
 
-See the comprehensive KV cache throughput comparison across all context sizes:
-
-![KV Cache Throughput Comparison](tq3_0_repo/results/bench_kv_lines.png)
+![KV Cache Throughput — All Configurations vs Context Size](results/throughput_comparison.png)
 
 ### Prefill Performance
 
@@ -180,9 +180,13 @@ A dense meteorological technical report (~2,200 tokens) was used as context. The
 
 *\*TQ3_1 estimate based on K=TQ3_0 architecture. Comprehensive benchmark scoring shows 97.1% F16-relative coherence with 0% degenerate outputs.*
 
+### Per-Question Score Breakdown
+
+![Claude Sonnet 4.6 Per-Question Accuracy — F16 vs TQ3_0 vs TQ2_0](results/claude_judge_breakdown.png)
+
 ### Quality vs VRAM Trade-off
 
-![Quality Retention vs KV Cache VRAM Usage](tq3_0_repo/results/f16_coherence.png)
+![Quality Retention vs KV Cache VRAM — Pareto Frontier](results/quality_vram_pareto.png)
 
 The Pareto frontier is clear: TQ3_0 achieves 93.3% fidelity at 78% VRAM reduction. TQ3_2 pushes to 84% VRAM reduction at the same 93.3% fidelity. TQ2_0 trades half the accuracy for absolute minimum memory footprint — viable for chat/summarization workloads where precise arithmetic is not required.
 
@@ -198,6 +202,14 @@ A focused 20-prompt evaluation with gemma-4-26B-A4B-it, RX 6750 XT, ngl=24:
 | TQ3_3 | tq3_0 | tq3_3 | 20/20 | 17.19 | 17.47 | 87.5 | 0.2529 |
 
 **Interpretation of Jaccard scores (0.25–0.27):** These values confirm outputs are *genuinely distinct* from the reference — the model is not collapsing to a degenerate, repetitive distribution. Different but equally coherent completions is evidence of preserved expressivity under compression, not a quality defect.
+
+### TQ3 Evolution Visualized
+
+![TQ3 Evolution — Throughput · Completion Rate · Jaccard Similarity](results/tq3_evolution.png)
+
+### Extreme Context — TQ3_2 vs FP16
+
+![Extreme Context Throughput — TQ3_2 operates where FP16 cannot load](results/extreme_context.png)
 
 ### Real-World Output Coherence — 100-Prompt Production Suite
 
